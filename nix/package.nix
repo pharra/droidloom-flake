@@ -2,7 +2,7 @@
   python3, pkg-config, clang, llvmPackages, libdrm, libgbm, mesa, wayland,
   libxkbcommon, pipewire, systemd, glibc, util-linux, coreutils,
   android-tools, polkit, nftables, iproute2, iptables, e2fsprogs,
-  libGL, libffi, zlib, vulkan-loader, makeWrapper }:
+  libGL, libffi, zlib, vulkan-loader, glslang, makeWrapper }:
 let
   upstreamVersion = "0.1.0-33";
   upstream = "https://github.com/denialwm/droidloom/releases/download/packages";
@@ -47,7 +47,7 @@ let
       "-p" "droidloom-doctor"
       "-p" "droidloom-gpu-server"
     ];
-    nativeBuildInputs = [ pkg-config clang llvmPackages.libclang python3 makeWrapper ];
+    nativeBuildInputs = [ pkg-config clang llvmPackages.libclang python3 glslang makeWrapper ];
     LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
     buildInputs = [
       libdrm libgbm mesa wayland libxkbcommon pipewire libGL libffi zlib
