@@ -1,12 +1,12 @@
 # Droidloom Flake for NixOS (experimental)
 
-One Git-ready flake, with a declarative NixOS module and APK list. Android images are fetched from the official `0.1.0-33` release; **Linux host** Rust programs are rebuilt to adapt `/usr/...` paths and relax the nonstandard `zwlr_output_power_manager_v1` requirement. APK installation happens when the Android service starts. No temporary NixOS configurations, overwriting `/etc/nixos`, or stand-alone test flakes are involved.
+One Git-ready flake, with a declarative NixOS module and APK list. Android images are fetched from the official `0.1.0-33` release; **Linux host** Rust programs are rebuilt to adapt upstream `/usr/...` paths for NixOS. The Wayland host still requires the upstream `zwlr_output_power_manager_v1` protocol. APK installation happens when the Android service starts. No temporary NixOS configurations, overwriting `/etc/nixos`, or stand-alone test flakes are involved.
 
 ## What has / has not been checked
 
 - Checked against the official `0.1.0-33` source and package metadata, including its new device and GPU brokers. The flake currently targets `x86_64-linux`; the upstream installer also supports `aarch64`, which this flake does not yet package.
 - `nix flake check --no-build`, the upstream patch derivation, and Python patcher tests pass. A successful build still does not prove a working deployment; Android cells and compositor compatibility require on-device validation.
-- This is **not** a proven working Droidloom deployment. In particular, Umbriel may lack other mandatory Wayland globals besides output-power. The module does not modify or add such compositor protocols.
+- This is **not** a proven working Droidloom deployment. Compositor compatibility and Android cells still require on-device validation. The module does not add or modify compositor protocols.
 - Generated files in `/etc/droidloom` are intentionally ordinary root-owned files, **not symlinks**, to satisfy upstream validation. Existing non-managed `cell.json` is saved to `cell.json.before-nixos-flake` before replacement.
 - Standalone APKs can be installed/updated from `services.droidloom.applications`; deleting an APK from the Nix list does **not** uninstall the app in Android. No arbitrary APKs are bundled.
 - Android app **data remains mutable** at `/var/lib/droidloom` (as intended). Nix declarativity describes the installation and desired APK set, not a reproducible mutable Android user profile.
@@ -39,7 +39,7 @@ inputs.droidloom.inputs.nixpkgs.follows = "nixpkgs";
 
 Add `inputs.droidloom.nixosModules.default` to the existing host's modules list, **not** to `environment.systemPackages` or a derivation registry.
 
-Declare in an ordinary NixOS module (see `examples/nixos.nix`):
+Declare this in an ordinary NixOS module:
 
 ```nix
 { ... }: {
@@ -100,8 +100,7 @@ Split APK bundles `.apkm`, `.apks`, `.xapk` are not supported by upstream `droid
 - `nix/module.nix` — UID/GID handling, root-owned cell spec, system/user services, APK install.
 - `nix/package.nix` — official release archives, pinned hashes, host build.
 - `nix/Cargo.lock` — Cargo dependencies pinned to the same official source release.
-- `nix/patch-host.py` — adapts upstream paths to Nix store locations, including the runtime package helper, and makes the output-power protocol optional. Protocol patches fail fast if upstream source changes.
+- `nix/patch-host.py` — adapts upstream paths to Nix store locations, including the runtime package helper; Wayland protocol behavior is left unchanged.
 - `tests/test_patcher.py` — local Python regression tests.
-- `examples/nixos.nix` — example declaration.
 
 Official Droidloom source: https://github.com/denialwm/droidloom . This flake is an independent experimental integration, not an official upstream package.
