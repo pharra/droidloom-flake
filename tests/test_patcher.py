@@ -16,6 +16,7 @@ NIX_PATHS = {
     'DL_RUNTIME': '/nix/store/runtime/usr/share/droidloom',
     'DL_RUNTIME_LIB': '/nix/store/runtime/usr/lib/droidloom',
     'DL_SYSTEMCTL': '/run/current-system/sw/bin/systemctl',
+    'DL_SYSTEMD_RUN': '/run/current-system/sw/bin/systemd-run',
     'DL_GETENT': '/run/current-system/sw/bin/getent',
     'DL_RUNUSER': '/run/current-system/sw/bin/runuser',
     'DL_ENV': '/run/current-system/sw/bin/env',
@@ -43,6 +44,12 @@ let output_power_manager: ZwlrOutputPowerManagerV1 = globals.bind(&qh, 1..=1, ()
         patched = mod.patch_paths(source, mod.path_replacements(NIX_PATHS))
         self.assertIn(NIX_PATHS['DL_RUNTIME_LIB'] + '/droidloom-package-helper', patched)
         self.assertIn(NIX_PATHS['DL_ANDROID'] + '/images/images/system.img', patched)
+
+    def test_systemd_run_uses_nix_path(self):
+        source = 'Command::new("/usr/bin/systemd-run");'
+        patched = mod.patch_paths(source, mod.path_replacements(NIX_PATHS))
+        self.assertIn(NIX_PATHS['DL_SYSTEMD_RUN'], patched)
+        self.assertNotIn('/usr/bin/systemd-run', patched)
 
 if __name__ == '__main__':
     unittest.main()

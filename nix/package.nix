@@ -62,6 +62,7 @@ let
       export DL_RUNTIME="${runtimeMetadata}/usr/share/droidloom"
       export DL_RUNTIME_LIB="${runtimeMetadata}/usr/lib/droidloom"
       export DL_SYSTEMCTL="${systemd}/bin/systemctl"
+      export DL_SYSTEMD_RUN="${systemd}/bin/systemd-run"
       export DL_GETENT="${glibc.bin}/bin/getent"
       export DL_RUNUSER="${util-linux}/bin/runuser"
       export DL_ENV="${coreutils}/bin/env"

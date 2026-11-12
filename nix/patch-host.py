@@ -21,6 +21,7 @@ def path_replacements(paths: dict[str, str]) -> list[tuple[str, str]]:
         ("/usr/bin/droidloomd", paths["DL_OUT"] + "/bin/droidloomd"),
         ("/usr/bin/adb", paths["DL_ADB"]),
         ("/usr/bin/systemctl", paths["DL_SYSTEMCTL"]),
+        ("/usr/bin/systemd-run", paths["DL_SYSTEMD_RUN"]),
         ("/usr/bin/getent", paths["DL_GETENT"]),
         ("/usr/bin/runuser", paths["DL_RUNUSER"]),
         ("/usr/bin/pkexec", paths["DL_PKEXEC"]),
@@ -41,7 +42,7 @@ def patch_paths(src: str, replacements: list[tuple[str, str]]) -> str:
 def main():
     needed = (
         "DL_OUT", "DL_ANDROID", "DL_RUNTIME", "DL_RUNTIME_LIB", "DL_SYSTEMCTL", "DL_GETENT",
-        "DL_RUNUSER", "DL_ENV", "DL_ADB", "DL_PKEXEC", "DL_TIMEOUT", "DL_IP",
+        "DL_RUNUSER", "DL_ENV", "DL_ADB", "DL_SYSTEMD_RUN", "DL_PKEXEC", "DL_TIMEOUT", "DL_IP",
     )
     missing = [key for key in needed if not os.environ.get(key)]
     if missing:
