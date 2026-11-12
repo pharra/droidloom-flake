@@ -1,5 +1,4 @@
 """Regression tests for the checked upstream Wayland protocol rewrite."""
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -42,6 +41,29 @@ class TestPatch(unittest.TestCase):
     def test_fail_closed_on_upstream_change(self):
         with self.assertRaisesRegex(RuntimeError, 'expected exactly one upstream match'):
             mod.patch_presenter(FIXTURE.replace('output_power_manager: ZwlrOutputPowerManagerV1,', 'output_power_manager: bool,'))
+
+    def test_runtime_package_helper_uses_runtime_payload(self):
+        paths = {
+            'DL_OUT': '/nix/store/host',
+            'DL_ANDROID': '/nix/store/android/usr/lib/droidloom',
+            'DL_RUNTIME': '/nix/store/runtime/usr/share/droidloom',
+            'DL_RUNTIME_LIB': '/nix/store/runtime/usr/lib/droidloom',
+            'DL_SYSTEMCTL': '/run/current-system/sw/bin/systemctl',
+            'DL_GETENT': '/run/current-system/sw/bin/getent',
+            'DL_RUNUSER': '/run/current-system/sw/bin/runuser',
+            'DL_ENV': '/run/current-system/sw/bin/env',
+            'DL_ADB': '/run/current-system/sw/bin/adb',
+            'DL_PKEXEC': '/run/current-system/sw/bin/pkexec',
+            'DL_TIMEOUT': '/run/current-system/sw/bin/timeout',
+            'DL_IP': '/run/current-system/sw/bin/ip',
+        }
+        source = (
+            'const HELPER: &str = "/usr/lib/droidloom/droidloom-package-helper";\n'
+            'const IMAGE: &str = "/usr/lib/droidloom/images/images/system.img";\n'
+        )
+        patched = mod.patch_paths(source, mod.path_replacements(paths))
+        self.assertIn(paths['DL_RUNTIME_LIB'] + '/droidloom-package-helper', patched)
+        self.assertIn(paths['DL_ANDROID'] + '/images/images/system.img', patched)
 
 if __name__ == '__main__':
     unittest.main()

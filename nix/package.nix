@@ -1,23 +1,23 @@
-{ lib, stdenvNoCC, rustPlatform, fetchurl, runCommand, zstd, gnutar,
+{ lib, rustPlatform, fetchurl, runCommand, zstd, gnutar,
   python3, pkg-config, clang, llvmPackages, libdrm, libgbm, mesa, wayland,
   libxkbcommon, pipewire, systemd, glibc, util-linux, coreutils,
   android-tools, polkit, nftables, iproute2, iptables, e2fsprogs,
-  libGL, libffi, zlib, makeWrapper }:
+  libGL, libffi, zlib, vulkan-loader, makeWrapper }:
 let
-  upstreamVersion = "0.1.0-23";
+  upstreamVersion = "0.1.0-33";
   upstream = "https://github.com/denialwm/droidloom/releases/download/packages";
 
   sourceArchive = fetchurl {
     url = "${upstream}/droidloom-source-${upstreamVersion}.tar.gz";
-    hash = "sha256-A0WN7QQseiVDVf0ZeR6TCKTmVTf6yJhRMh9Z1LCBLHI=";
+    hash = "sha256-1Tk0hpLMFFbaM6RuFBUDG2uUZlnGWwFsrsYhRBW8w4I=";
   };
   runtimeArchive = fetchurl {
     url = "${upstream}/droidloom-runtime-${upstreamVersion}-x86_64.pkg.tar.zst";
-    hash = "sha256-EK8oY7yrusdY8JtYdTBHFlvGQTbRVzuwbfECU0REYQM=";
+    hash = "sha256-c26gG69RetZUdEI2v+NaSz+rQVCp4RJORNdzJeb7T5E=";
   };
   imageArchive = fetchurl {
     url = "${upstream}/droidloom-image-${upstreamVersion}-x86_64.pkg.tar.zst";
-    hash = "sha256-srAlwBIqA2TGnM7XfwNljh++OjJOyLZrP49Qvh9QRqI=";
+    hash = "sha256-aE+jMQPofDTLwN1bmJwB7rDH7zTEkKaMZ+7w4BwdCmo=";
   };
 
   unpackPackage = kind: archive:
@@ -33,33 +33,26 @@ let
   androidArtifacts = unpackPackage "android" imageArchive;
   runtimeMetadata = unpackPackage "runtime" runtimeArchive;
 
-  sourceTree = stdenvNoCC.mkDerivation {
-    pname = "droidloom-source-unpacked";
-    version = upstreamVersion;
-    src = sourceArchive;
-    dontConfigure = true;
-    dontBuild = true;
-    installPhase = ''
-      mkdir -p "$out"
-      cp -a . "$out/"
-    '';
-  };
-
   host = rustPlatform.buildRustPackage {
     pname = "droidloom-nixos-host";
     version = upstreamVersion;
-    src = sourceTree;
-    cargoLock.lockFile = "${sourceTree}/Cargo.lock";
+    src = sourceArchive;
+    cargoLock.lockFile = ./Cargo.lock;
     cargoBuildFlags = [
       "-p" "droidloom-supervisor"
       "-p" "droidloom-wayland"
       "-p" "droidloom-applications"
       "-p" "droidloom-audio"
+      "-p" "droidloom-devices"
       "-p" "droidloom-doctor"
+      "-p" "droidloom-gpu-server"
     ];
     nativeBuildInputs = [ pkg-config clang llvmPackages.libclang python3 makeWrapper ];
     LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
-    buildInputs = [ libdrm libgbm mesa wayland libxkbcommon pipewire libGL libffi zlib ];
+    buildInputs = [
+      libdrm libgbm mesa wayland libxkbcommon pipewire libGL libffi zlib
+      vulkan-loader
+    ];
     doCheck = false;
     # Patch Rust source paths, not embedded Android code. NixOS does not
     # supply /usr/bin/droidloom-* or /usr/lib/droidloom.
@@ -67,6 +60,7 @@ let
       export DL_OUT="$out"
       export DL_ANDROID="${androidArtifacts}/usr/lib/droidloom"
       export DL_RUNTIME="${runtimeMetadata}/usr/share/droidloom"
+      export DL_RUNTIME_LIB="${runtimeMetadata}/usr/lib/droidloom"
       export DL_SYSTEMCTL="${systemd}/bin/systemctl"
       export DL_GETENT="${glibc.bin}/bin/getent"
       export DL_RUNUSER="${util-linux}/bin/runuser"
@@ -81,9 +75,11 @@ let
     installPhase = ''
       runHook preInstall
       mkdir -p "$out/bin"
-      for name in droidloomd droidloomctl droidloom-supervisor droidloom-wayland droidloom-applications droidloom-audio droidloom-doctor; do
+      for name in droidloomd droidloomctl droidloom-supervisor droidloom-wayland droidloom-applications droidloom-audio droidloom-devices droidloom-doctor droidloom-gpu-server; do
         install -m755 "target/x86_64-unknown-linux-gnu/release/$name" "$out/bin/$name"
       done
+      wrapProgram "$out/bin/droidloom-gpu-server" \
+        --prefix LD_LIBRARY_PATH : "${vulkan-loader}/lib"
       runHook postInstall
     '';
     # Host tools were compiled against the matching upstream release. An

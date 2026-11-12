@@ -1,39 +1,38 @@
 # Droidloom Flake for NixOS (experimental)
 
-One Git/NGit-ready flake, with a declarative NixOS module and APK list. Android images are fetched from the official `0.1.0-23` release; only **Linux host** Rust programs are rebuilt to adapt `/usr/...` paths and relax the nonstandard `zwlr_output_power_manager_v1` requirement. APK installation happens when the Android service starts. No temporary NixOS configurations, overwriting `/etc/nixos`, or stand-alone test flakes are involved.
+One Git-ready flake, with a declarative NixOS module and APK list. Android images are fetched from the official `0.1.0-33` release; **Linux host** Rust programs are rebuilt to adapt `/usr/...` paths and relax the nonstandard `zwlr_output_power_manager_v1` requirement. APK installation happens when the Android service starts. No temporary NixOS configurations, overwriting `/etc/nixos`, or stand-alone test flakes are involved.
 
 ## What has / has not been checked
 
-- Verified **statically** against upstream packaging, CLI commands, systemd units and Wayland Rust source on Oct 24 2026. Python patch unit tests run locally.
-- Includes a `nix flake check` graph with NixOS module evaluation, a source-patch check, and host build; **these have not yet run on Nix**, since the preparation container has no Nix binary or working external downloads.
+- Checked against the official `0.1.0-33` source and package metadata, including its new device and GPU brokers. The flake currently targets `x86_64-linux`; the upstream installer also supports `aarch64`, which this flake does not yet package.
+- `nix flake check --no-build`, the upstream patch derivation, and Python patcher tests pass. A successful build still does not prove a working deployment; Android cells and compositor compatibility require on-device validation.
 - This is **not** a proven working Droidloom deployment. In particular, Umbriel may lack other mandatory Wayland globals besides output-power. The module does not modify or add such compositor protocols.
 - Generated files in `/etc/droidloom` are intentionally ordinary root-owned files, **not symlinks**, to satisfy upstream validation. Existing non-managed `cell.json` is saved to `cell.json.before-nixos-flake` before replacement.
 - Standalone APKs can be installed/updated from `services.droidloom.applications`; deleting an APK from the Nix list does **not** uninstall the app in Android. No arbitrary APKs are bundled.
 - Android app **data remains mutable** at `/var/lib/droidloom` (as intended). Nix declarativity describes the installation and desired APK set, not a reproducible mutable Android user profile.
 
-## Publish to NGit
+## Publish to GitHub
 
-Put the files at the **root of one repository** (so `flake.nix` is at repository root) and commit them:
+This flake lives at the repository root. To publish changes to the GitHub
+repository:
 
 ```bash
-nix flake lock
 nix flake check --no-build
 nix build -L .#checks.x86_64-linux.module-evaluation
 nix build -L .#checks.x86_64-linux.upstream-patch
-nix build -L .#host
 
-git add flake.nix flake.lock nix README.md examples tests .gitignore
-git commit -m 'Initial Droidloom NixOS flake'
+git remote add github git@github.com:pharra/droidloom-flake.git
+git push -u github main
 ```
 
-The `nix flake lock` step creates a real, pinned `flake.lock`; **there is no fabricated lockfile included**. Once committed, push to your NGit remote normally.
+If the `github` remote is already configured, skip `git remote add`.
 
 ## NixOS integration
 
-Add to your existing main Flake inputs (use the actual NGit clone URL):
+Add this input to your existing NixOS flake:
 
 ```nix
-inputs.droidloom.url = "git+https://YOUR-NGIT-CLONE-URL";
+inputs.droidloom.url = "github:pharra/droidloom-flake";
 # Optional: avoid a second nixpkgs revision:
 inputs.droidloom.inputs.nixpkgs.follows = "nixpkgs";
 ```
@@ -51,11 +50,18 @@ Declare in an ordinary NixOS module (see `examples/nixos.nix`):
     manageSubIds = true;
     subIdStart = 100000;
     renderNode = "/dev/dri/renderD128";
+    # Optional PCI address for Android Vulkan, e.g. "0000:03:00.0".
+    gpu = null;
     autoStart = false;
     applications = [ ];
   };
 }
 ```
+
+The current upstream release includes host device and Vulkan brokers in
+addition to the original audio broker. The module provides their socket-
+activated user services; set `services.droidloom.gpu` to the GPU's PCI address
+to select it for Android Vulkan.
 
 **Disable/remove the earlier standalone Droidloom derivation** from your `environment.systemPackages` registry to avoid two packages exporting the same binary names. This flake's module adds its host package by itself.
 
@@ -93,7 +99,8 @@ Split APK bundles `.apkm`, `.apks`, `.xapk` are not supported by upstream `droid
 - `flake.nix` — exposed `nixosModules.default`, `packages.x86_64-linux.*`, `checks.x86_64-linux.*`.
 - `nix/module.nix` — UID/GID handling, root-owned cell spec, system/user services, APK install.
 - `nix/package.nix` — official release archives, pinned hashes, host build.
-- `nix/patch-host.py` — source modifications fail fast if upstream code no longer matches.
+- `nix/Cargo.lock` — Cargo dependencies pinned to the same official source release.
+- `nix/patch-host.py` — adapts upstream paths to Nix store locations, including the runtime package helper, and makes the output-power protocol optional. Protocol patches fail fast if upstream source changes.
 - `tests/test_patcher.py` — local Python regression tests.
 - `examples/nixos.nix` — example declaration.
 

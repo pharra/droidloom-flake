@@ -63,6 +63,7 @@
           export DL_OUT=/nix/store/placeholder-droidloom-host
           export DL_ANDROID=/nix/store/placeholder-droidloom-android/usr/lib/droidloom
           export DL_RUNTIME=/nix/store/placeholder-droidloom-runtime/usr/share/droidloom
+          export DL_RUNTIME_LIB=/nix/store/placeholder-droidloom-runtime/usr/lib/droidloom
           export DL_SYSTEMCTL=/run/current-system/sw/bin/systemctl
           export DL_GETENT=/run/current-system/sw/bin/getent
           export DL_RUNUSER=/run/current-system/sw/bin/runuser

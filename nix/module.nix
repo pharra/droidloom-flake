@@ -80,6 +80,12 @@ in
       default = "/dev/dri/renderD128";
       description = "AMD or Intel render node. Check /sys/class/drm before enabling.";
     };
+    gpu = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "0000:03:00.0";
+      description = "PCI address of the GPU used by Android Vulkan applications.";
+    };
     applications = mkOption {
       type = types.listOf (types.either types.path types.package);
       default = [];
@@ -211,10 +217,17 @@ in
     systemd.user.services.droidloom = {
       description = "Droidloom Android Wayland runtime (experimental)";
       partOf = [ "graphical-session.target" ];
-      after = [ "graphical-session-pre.target" "droidloom-audio.socket" ];
+      after = [
+        "graphical-session-pre.target"
+        "droidloom-audio.socket"
+        "droidloom-devices.socket"
+        "droidloom-gpu.socket"
+      ];
       wants = [
         "droidloom-applications.service"
         "droidloom-audio.socket"
+        "droidloom-devices.socket"
+        "droidloom-gpu.socket"
         "droidloom-recovery.service"
       ];
       wantedBy = lib.optionals cfg.autoStart [ "graphical-session.target" ];
@@ -236,7 +249,10 @@ in
         ExecStartPre = "${pkgs.systemd}/bin/systemctl start droidloomd.service";
         ExecStart = "${host}/bin/droidloom-wayland";
         ExecStartPost = "${host}/bin/droidloomctl start --cell";
-        ExecStopPost = "${pkgs.systemd}/bin/systemctl stop droidloomd.service";
+        ExecStopPost = [
+          "-${host}/bin/droidloomctl stop --cell"
+          "${pkgs.systemd}/bin/systemctl stop droidloomd.service"
+        ];
         Restart = "on-failure";
         RestartSec = "1s";
         TimeoutStartSec = 150;
@@ -294,7 +310,55 @@ in
         RestrictSUIDSGID = true;
       };
     };
-
+    systemd.user.sockets.droidloom-devices = {
+      description = "Droidloom private Android device endpoints";
+      partOf = [ "droidloom.service" ];
+      socketConfig = {
+        ListenSequentialPacket = [
+          "%t/droidloom/haptics.sock"
+          "%t/droidloom/camera.sock"
+          "%t/droidloom/fingerprint.sock"
+        ];
+        SocketMode = "0666";
+        DirectoryMode = "0700";
+        RemoveOnStop = true;
+      };
+    };
+    systemd.user.services.droidloom-devices = {
+      description = "Droidloom host haptics, camera and fingerprint broker";
+      partOf = [ "droidloom.service" ];
+      requires = [ "droidloom-devices.socket" ];
+      serviceConfig = {
+        ExecStart = "${host}/bin/droidloom-devices";
+        Restart = "on-failure";
+        RestartSec = "1s";
+        NoNewPrivileges = true;
+        RestrictSUIDSGID = true;
+      };
+    };
+    systemd.user.sockets.droidloom-gpu = {
+      description = "Droidloom GPU forwarding endpoint";
+      partOf = [ "droidloom.service" ];
+      socketConfig = {
+        ListenStream = "%t/droidloom/gpu.sock";
+        SocketMode = "0666";
+        DirectoryMode = "0700";
+        RemoveOnStop = true;
+      };
+    };
+    systemd.user.services.droidloom-gpu = {
+      description = "Droidloom GPU server: Android Vulkan on the host driver";
+      partOf = [ "droidloom.service" ];
+      requires = [ "droidloom-gpu.socket" ];
+      serviceConfig = {
+        ExecStart = "${host}/bin/droidloom-gpu-server";
+        Environment = lib.optional (cfg.gpu != null) "DROIDLOOM_GPU=${cfg.gpu}";
+        Restart = "on-failure";
+        RestartSec = "1s";
+        NoNewPrivileges = true;
+        RestrictSUIDSGID = true;
+      };
+    };
     systemd.user.services.droidloom-recovery = {
       description = "Droidloom Android cell crash recovery";
       bindsTo = [ "droidloom.service" ];
