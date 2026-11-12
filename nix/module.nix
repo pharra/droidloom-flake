@@ -202,6 +202,10 @@ in
       '';
       serviceConfig = {
         Type = "simple";
+        # Android netd attaches egress BPF to its cgroup namespace root. Keep
+        # that root below the systemd unit cgroup, which rejects BPF attaches.
+        Delegate = true;
+        DelegateSubgroup = "droidloom";
         ExecStart = "${host}/bin/droidloomd";
         TimeoutStopSec = "20s";
         KillMode = "mixed";

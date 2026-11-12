@@ -52,7 +52,13 @@
       checks.${system} = {
         host = droidloom.host;
         module-evaluation = pkgs.runCommand "droidloom-module-evaluation" { } ''
-          echo ${if moduleEval.config.systemd.services ? droidloomd then "ok" else throw "droidloomd service missing"} > "$out"
+          echo ${
+            if moduleEval.config.systemd.services ? droidloomd
+              && moduleEval.config.systemd.services.droidloomd.serviceConfig.Delegate
+              && moduleEval.config.systemd.services.droidloomd.serviceConfig.DelegateSubgroup == "droidloom"
+            then "ok"
+            else throw "droidloomd service must delegate the droidloom cgroup subgroup"
+          } > "$out"
         '';
         upstream-patch = pkgs.runCommand "droidloom-upstream-patch-check" {
           nativeBuildInputs = with pkgs; [ python3 gnutar gzip ];

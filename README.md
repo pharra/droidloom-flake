@@ -8,6 +8,7 @@ One Git-ready flake, with a declarative NixOS module and APK list. Android image
 - `nix flake check --no-build`, the upstream patch derivation, and Python patcher tests pass. A successful build still does not prove a working deployment; Android cells and compositor compatibility require on-device validation.
 - This is **not** a proven working Droidloom deployment. Compositor compatibility and Android cells still require on-device validation. The module does not add or modify compositor protocols.
 - Generated files in `/etc/droidloom` are intentionally ordinary root-owned files, **not symlinks**, to satisfy upstream validation. Existing non-managed `cell.json` is saved to `cell.json.before-nixos-flake` before replacement.
+- The system daemon delegates a `droidloom` cgroup subgroup to Android. This keeps Android's cgroup namespace root below the systemd unit root so `netd` can attach its egress BPF program.
 - Standalone APKs can be installed/updated from `services.droidloom.applications`; deleting an APK from the Nix list does **not** uninstall the app in Android. No arbitrary APKs are bundled.
 - Android app **data remains mutable** at `/var/lib/droidloom` (as intended). Nix declarativity describes the installation and desired APK set, not a reproducible mutable Android user profile.
 
