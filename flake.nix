@@ -31,6 +31,8 @@
               user = "kori";
               uid = 1000;
               manageSubIds = true;
+              gpu = "0000:01:00.0";
+              graphicsBackend = "forwarding";
             };
           })
         ];
@@ -45,6 +47,7 @@
         host = droidloom.host;
         android-artifacts = droidloom.androidArtifacts;
         runtime-metadata = droidloom.runtimeMetadata;
+        advanced-protection-config = droidloom.advancedProtectionConfig;
       };
 
       # `nix flake check --no-build` evaluates these derivations without
@@ -56,9 +59,26 @@
             if moduleEval.config.systemd.services ? droidloomd
               && moduleEval.config.systemd.services.droidloomd.serviceConfig.Delegate
               && moduleEval.config.systemd.services.droidloomd.serviceConfig.DelegateSubgroup == "droidloom"
+              && builtins.elem "system_heap" moduleEval.config.boot.kernelModules
             then "ok"
-            else throw "droidloomd service must delegate the droidloom cgroup subgroup"
+            else throw "Droidloom module must delegate its cgroup subgroup and load the system DMA heap"
           } > "$out"
+        '';
+        advanced-protection-config = pkgs.runCommand "droidloom-advanced-protection-config-check" {
+          nativeBuildInputs = [ pkgs.python3 ];
+        } ''
+          ${pkgs.python3}/bin/python3 - ${droidloom.advancedProtectionConfig} <<'PY'
+import sys
+from xml.etree import ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+protections = root.findall("./available-protections/protection")
+if not protections:
+    raise SystemExit("Advanced Protection config contains no protections")
+if any("featureFlag" in protection.attrib for protection in protections):
+    raise SystemExit("Advanced Protection config still has a featureFlag attribute")
+PY
+          echo passed > "$out"
         '';
         upstream-patch = pkgs.runCommand "droidloom-upstream-patch-check" {
           nativeBuildInputs = with pkgs; [ python3 gnutar gzip ];
@@ -71,6 +91,7 @@
           export DL_RUNTIME=/nix/store/placeholder-droidloom-runtime/usr/share/droidloom
           export DL_RUNTIME_LIB=/nix/store/placeholder-droidloom-runtime/usr/lib/droidloom
           export DL_SYSTEMCTL=/run/current-system/sw/bin/systemctl
+          export DL_SYSTEMD_RUN=/run/current-system/sw/bin/systemd-run
           export DL_GETENT=/run/current-system/sw/bin/getent
           export DL_RUNUSER=/run/current-system/sw/bin/runuser
           export DL_ENV=/run/current-system/sw/bin/env

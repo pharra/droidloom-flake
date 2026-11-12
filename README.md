@@ -9,6 +9,7 @@ One Git-ready flake, with a declarative NixOS module and APK list. Android image
 - This is **not** a proven working Droidloom deployment. Compositor compatibility and Android cells still require on-device validation. The module does not add or modify compositor protocols.
 - Generated files in `/etc/droidloom` are intentionally ordinary root-owned files, **not symlinks**, to satisfy upstream validation. Existing non-managed `cell.json` is saved to `cell.json.before-nixos-flake` before replacement.
 - The system daemon delegates a `droidloom` cgroup subgroup to Android. This keeps Android's cgroup namespace root below the systemd unit root so `netd` can attach its egress BPF program.
+- The generated cell spec replaces Android's Advanced Protection config with a store-backed copy from the matching system image, removing `featureFlag` attributes that crash the release 33 framework when its Aconfig package is unavailable.
 - Standalone APKs can be installed/updated from `services.droidloom.applications`; deleting an APK from the Nix list does **not** uninstall the app in Android. No arbitrary APKs are bundled.
 - Android app **data remains mutable** at `/var/lib/droidloom` (as intended). Nix declarativity describes the installation and desired APK set, not a reproducible mutable Android user profile.
 
@@ -51,6 +52,8 @@ Declare this in an ordinary NixOS module:
     manageSubIds = true;
     subIdStart = 100000;
     renderNode = "/dev/dri/renderD128";
+    # Select "forwarding" for NVIDIA GPUs without an Android Vulkan driver.
+    graphicsBackend = "drm";
     # Optional PCI address for Android Vulkan, e.g. "0000:03:00.0".
     gpu = null;
     autoStart = false;
@@ -62,7 +65,9 @@ Declare this in an ordinary NixOS module:
 The current upstream release includes host device and Vulkan brokers in
 addition to the original audio broker. The module provides their socket-
 activated user services; set `services.droidloom.gpu` to the GPU's PCI address
-to select it for Android Vulkan.
+to select it for Android Vulkan. NVIDIA users should also set
+`services.droidloom.graphicsBackend = "forwarding"`; this enables the system
+DMA heap required by the forwarding backend.
 
 **Disable/remove the earlier standalone Droidloom derivation** from your `environment.systemPackages` registry to avoid two packages exporting the same binary names. This flake's module adds its host package by itself.
 

@@ -2,7 +2,7 @@
   python3, pkg-config, clang, llvmPackages, libdrm, libgbm, mesa, wayland,
   libxkbcommon, pipewire, systemd, glibc, util-linux, coreutils,
   android-tools, polkit, nftables, iproute2, iptables, e2fsprogs,
-  libGL, libffi, zlib, vulkan-loader, glslang, makeWrapper }:
+  libGL, libffi, zlib, vulkan-loader, glslang, makeWrapper, erofs-utils }:
 let
   upstreamVersion = "0.1.0-33";
   upstream = "https://github.com/denialwm/droidloom/releases/download/packages";
@@ -32,6 +32,26 @@ let
   # kept bit-for-bit unchanged: patching host ELF files in this tree is unsafe.
   androidArtifacts = unpackPackage "android" imageArchive;
   runtimeMetadata = unpackPackage "runtime" runtimeArchive;
+
+  advancedProtectionConfig = runCommand "droidloom-advanced-protection-config-${upstreamVersion}" {
+    nativeBuildInputs = [ erofs-utils python3 ];
+  } ''
+    ${erofs-utils}/bin/fsck.erofs \
+      --extract="$TMPDIR/advanced-protection-config.xml" \
+      --path=/system/etc/advanced-protection-config/advanced-protection-config.xml \
+      ${androidArtifacts}/usr/lib/droidloom/images/images/system.img
+    ${python3}/bin/python3 - "$TMPDIR/advanced-protection-config.xml" "$out" <<'PY'
+import sys
+from xml.etree import ElementTree as ET
+
+source, destination = sys.argv[1:]
+parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+tree = ET.parse(source, parser=parser)
+for element in tree.iter("protection"):
+    element.attrib.pop("featureFlag", None)
+tree.write(destination, encoding="utf-8", xml_declaration=True)
+PY
+  '';
 
   host = rustPlatform.buildRustPackage {
     pname = "droidloom-nixos-host";
@@ -93,5 +113,5 @@ let
     };
   };
 in {
-  inherit host androidArtifacts runtimeMetadata sourceArchive;
+  inherit host androidArtifacts runtimeMetadata advancedProtectionConfig sourceArchive;
 }

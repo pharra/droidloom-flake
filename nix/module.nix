@@ -6,6 +6,7 @@ let
   host = packages.host;
   artifacts = packages.androidArtifacts;
   metadata = packages.runtimeMetadata;
+  advancedProtectionConfig = packages.advancedProtectionConfig;
   uid = toString cfg.uid;
   userName = cfg.user;
   apkInstallScript = pkgs.writeShellScript "droidloom-declarative-apks" ''
@@ -25,6 +26,9 @@ let
     export DL_IMAGE_ROOT="${artifacts}/usr/lib/droidloom"
     export DL_UID="${uid}"
     export DL_RENDER_NODE="${cfg.renderNode}"
+    export DL_GPU="${if cfg.gpu == null then "" else cfg.gpu}"
+    export DL_GRAPHICS_BACKEND="${cfg.graphicsBackend}"
+    export DL_ADVANCED_PROTECTION_CONFIG="${advancedProtectionConfig}"
     export DL_DATA_DIR="${dataDir}"
     export DL_SUB_ID_START="${toString cfg.subIdStart}"
     ${pkgs.python3}/bin/python3 - <<'PY'
@@ -57,6 +61,18 @@ spec.update({
     "subordinate_uids": {"start": int(os.environ["DL_SUB_ID_START"]), "count": 100000},
     "subordinate_gids": {"start": int(os.environ["DL_SUB_ID_START"]), "count": 100000},
 })
+if os.environ["DL_GPU"]:
+    spec["gpu"] = os.environ["DL_GPU"]
+else:
+    spec.pop("gpu", None)
+spec["graphics_backend"] = os.environ["DL_GRAPHICS_BACKEND"]
+override_target = "/system/etc/advanced-protection-config/advanced-protection-config.xml"
+overrides = spec.setdefault("android_file_overrides", [])
+overrides[:] = [entry for entry in overrides if entry.get("target") != override_target]
+overrides.append({
+    "source": os.environ["DL_ADVANCED_PROTECTION_CONFIG"],
+    "target": override_target,
+})
 Path(os.environ["out"]).write_text(json.dumps(spec, indent=2) + "\n")
 PY
   '';
@@ -78,13 +94,18 @@ in
     renderNode = mkOption {
       type = types.str;
       default = "/dev/dri/renderD128";
-      description = "AMD or Intel render node. Check /sys/class/drm before enabling.";
+      description = "DRM render node exposed to Android. Check /sys/class/drm before enabling.";
     };
     gpu = mkOption {
       type = types.nullOr types.str;
       default = null;
       example = "0000:03:00.0";
-      description = "PCI address of the GPU used by Android Vulkan applications.";
+      description = "GPU vendor or PCI address used by Android Vulkan applications.";
+    };
+    graphicsBackend = mkOption {
+      type = types.enum [ "drm" "drm_dma_heap" "kgsl_dma_heap" "forwarding" ];
+      default = "drm";
+      description = "Android graphics backend; use forwarding for NVIDIA GPUs without an Android driver.";
     };
     applications = mkOption {
       type = types.listOf (types.either types.path types.package);
@@ -147,7 +168,9 @@ in
       });
     '';
 
-    boot.kernelModules = [ "binder_linux" "fuse" ];
+    boot.kernelModules =
+      [ "binder_linux" "fuse" ]
+      ++ lib.optionals (cfg.graphicsBackend != "drm") [ "system_heap" ];
     boot.kernel.sysctl = mkIf cfg.enableIpv4Forwarding {
       "net.ipv4.ip_forward" = 1;
     };
