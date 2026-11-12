@@ -106,5 +106,6 @@ Split APK bundles `.apkm`, `.apks`, `.xapk` are not supported by upstream `droid
 - `nix/module.nix` — UID/GID handling, root-owned cell spec, system/user services, APK install.
 - `nix/package.nix` — official release archives, pinned hashes, host build; `postPatch` rewrites upstream `/usr/...` paths to Nix store paths with `substituteInPlace`.
 - `nix/Cargo.lock` — Cargo dependencies pinned to the same official source release.
+- `TROUBLESHOOTING.md` — known launch failures, including `Activity start failed: -91` when launching by package name.
 
 Official Droidloom source: https://github.com/denialwm/droidloom . This flake is an independent experimental integration, not an official upstream package.
