@@ -81,25 +81,29 @@ PY
           echo passed > "$out"
         '';
         upstream-patch = pkgs.runCommand "droidloom-upstream-patch-check" {
-          nativeBuildInputs = with pkgs; [ python3 gnutar gzip ];
+          nativeBuildInputs = with pkgs; [ gnutar gzip ];
         } ''
           mkdir -p extracted
           tar -xzf ${droidloom.sourceArchive} -C extracted --strip-components=1
           cd extracted
-          export DL_OUT=/nix/store/placeholder-droidloom-host
-          export DL_ANDROID=/nix/store/placeholder-droidloom-android/usr/lib/droidloom
-          export DL_RUNTIME=/nix/store/placeholder-droidloom-runtime/usr/share/droidloom
-          export DL_RUNTIME_LIB=/nix/store/placeholder-droidloom-runtime/usr/lib/droidloom
-          export DL_SYSTEMCTL=/run/current-system/sw/bin/systemctl
-          export DL_SYSTEMD_RUN=/run/current-system/sw/bin/systemd-run
-          export DL_GETENT=/run/current-system/sw/bin/getent
-          export DL_RUNUSER=/run/current-system/sw/bin/runuser
-          export DL_ENV=/run/current-system/sw/bin/env
-          export DL_ADB=/run/current-system/sw/bin/adb
-          export DL_PKEXEC=/run/current-system/sw/bin/pkexec
-          export DL_TIMEOUT=/run/current-system/sw/bin/timeout
-          export DL_IP=/run/current-system/sw/bin/ip
-          ${pkgs.python3}/bin/python3 ${./nix/patch-host.py}
+          ${droidloom.substituteHostPaths {
+            out = "/nix/store/placeholder-droidloom-host";
+            android = "/nix/store/placeholder-droidloom-android/usr/lib/droidloom";
+            runtime = "/nix/store/placeholder-droidloom-runtime/usr/share/droidloom";
+            runtimeLib = "/nix/store/placeholder-droidloom-runtime/usr/lib/droidloom";
+          }}
+          grep -rq '/nix/store/placeholder-droidloom-runtime/usr/lib/droidloom/droidloom-package-helper' runtime graphics
+          if grep -rq '@droidloomPackageHelper@' runtime graphics; then
+            echo "package helper placeholder was not resolved" >&2
+            exit 1
+          fi
+          grep -rq '/nix/store/placeholder-droidloom-android/usr/lib/droidloom/images/images/vendor.raw.img' runtime graphics
+          grep -rq '${pkgs.systemd}/bin/systemd-run' runtime graphics
+          grep -rq '${pkgs.util-linux}/bin/nsenter' runtime graphics
+          if grep -rqE '/usr/bin/(systemd-run|nsenter|cat|sleep)|/usr/bin:/bin' runtime graphics; then
+            echo "unpatched upstream host paths remain" >&2
+            exit 1
+          fi
           echo passed > "$out"
         '';
       };

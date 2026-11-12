@@ -5,7 +5,7 @@ One Git-ready flake, with a declarative NixOS module and APK list. Android image
 ## What has / has not been checked
 
 - Checked against the official `0.1.0-33` source and package metadata, including its new device and GPU brokers. The flake currently targets `x86_64-linux`; the upstream installer also supports `aarch64`, which this flake does not yet package.
-- `nix flake check --no-build`, the upstream patch derivation, and Python patcher tests pass. A successful build still does not prove a working deployment; Android cells and compositor compatibility require on-device validation.
+- `nix flake check --no-build` and the upstream host-path patch derivation pass. A successful build still does not prove a working deployment; Android cells and compositor compatibility require on-device validation.
 - This is **not** a proven working Droidloom deployment. Compositor compatibility and Android cells still require on-device validation. The module does not add or modify compositor protocols.
 - Generated files in `/etc/droidloom` are intentionally ordinary root-owned files, **not symlinks**, to satisfy upstream validation. Existing non-managed `cell.json` is saved to `cell.json.before-nixos-flake` before replacement.
 - The system daemon delegates a `droidloom` cgroup subgroup to Android. This keeps Android's cgroup namespace root below the systemd unit root so `netd` can attach its egress BPF program.
@@ -104,9 +104,7 @@ Split APK bundles `.apkm`, `.apks`, `.xapk` are not supported by upstream `droid
 
 - `flake.nix` — exposed `nixosModules.default`, `packages.x86_64-linux.*`, `checks.x86_64-linux.*`.
 - `nix/module.nix` — UID/GID handling, root-owned cell spec, system/user services, APK install.
-- `nix/package.nix` — official release archives, pinned hashes, host build.
+- `nix/package.nix` — official release archives, pinned hashes, host build; `postPatch` rewrites upstream `/usr/...` paths to Nix store paths with `substituteInPlace`.
 - `nix/Cargo.lock` — Cargo dependencies pinned to the same official source release.
-- `nix/patch-host.py` — adapts upstream paths to Nix store locations, including the runtime package helper; Wayland protocol behavior is left unchanged.
-- `tests/test_patcher.py` — local Python regression tests.
 
 Official Droidloom source: https://github.com/denialwm/droidloom . This flake is an independent experimental integration, not an official upstream package.

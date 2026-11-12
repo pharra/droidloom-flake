@@ -1,7 +1,7 @@
 { lib, rustPlatform, fetchurl, runCommand, zstd, gnutar,
   python3, pkg-config, clang, llvmPackages, libdrm, libgbm, mesa, wayland,
   libxkbcommon, pipewire, systemd, glibc, util-linux, coreutils,
-  android-tools, polkit, nftables, iproute2, iptables, e2fsprogs,
+  android-tools, polkit, nftables, iproute2, iptables, e2fsprogs, rsync,
   libGL, libffi, zlib, vulkan-loader, glslang, makeWrapper, erofs-utils }:
 let
   upstreamVersion = "0.1.0-33";
@@ -32,6 +32,43 @@ let
   # kept bit-for-bit unchanged: patching host ELF files in this tree is unsafe.
   androidArtifacts = unpackPackage "android" imageArchive;
   runtimeMetadata = unpackPackage "runtime" runtimeArchive;
+
+  # Runtime PATH for code paths that fall back to an FHS bin directory or exec
+  # bare tool names.
+  hostBinPath = lib.makeBinPath [
+    coreutils util-linux systemd glibc.bin android-tools iproute2
+    nftables iptables e2fsprogs gnutar zstd rsync polkit
+  ];
+
+  # Upstream host sources hard-code Arch/FHS paths. `substituteInPlace`
+  # applies replacements in order and re-scans earlier results, so the package
+  # helper is parked on a placeholder before the generic `/usr/lib/droidloom`
+  # rule would rewrite the runtime path it is about to receive.
+  substituteHostPaths = { out, android, runtime, runtimeLib }:
+    ''
+      substituteInPlace $(find runtime graphics -name '*.rs') \
+        --replace-quiet "/usr/share/droidloom/package.json" "/var/empty/droidloom-nixos-not-pacman" \
+        --replace-quiet "/usr/share/droidloom" "${runtime}" \
+        --replace-quiet "/usr/lib/droidloom/droidloom-package-helper" "@droidloomPackageHelper@" \
+        --replace-quiet "/usr/lib/droidloom" "${android}" \
+        --replace-quiet "@droidloomPackageHelper@" "${runtimeLib}/droidloom-package-helper" \
+        --replace-quiet "/usr/bin:/bin" "${hostBinPath}" \
+        --replace-quiet "/usr/bin/droidloom-" "${out}/bin/droidloom-" \
+        --replace-quiet "/usr/bin/droidloomctl" "${out}/bin/droidloomctl" \
+        --replace-quiet "/usr/bin/droidloomd" "${out}/bin/droidloomd" \
+        --replace-quiet "/usr/bin/adb" "${android-tools}/bin/adb" \
+        --replace-quiet "/usr/bin/systemctl" "${systemd}/bin/systemctl" \
+        --replace-quiet "/usr/bin/systemd-run" "${systemd}/bin/systemd-run" \
+        --replace-quiet "/usr/bin/getent" "${glibc.bin}/bin/getent" \
+        --replace-quiet "/usr/bin/runuser" "${util-linux}/bin/runuser" \
+        --replace-quiet "/usr/bin/nsenter" "${util-linux}/bin/nsenter" \
+        --replace-quiet "/usr/bin/pkexec" "${polkit}/bin/pkexec" \
+        --replace-quiet "/usr/bin/timeout" "${coreutils}/bin/timeout" \
+        --replace-quiet "/usr/bin/sleep" "${coreutils}/bin/sleep" \
+        --replace-quiet "/usr/bin/cat" "${coreutils}/bin/cat" \
+        --replace-quiet "/usr/bin/ip" "${iproute2}/bin/ip" \
+        --replace-quiet "/usr/bin/env" "${coreutils}/bin/env"
+    '';
 
   advancedProtectionConfig = runCommand "droidloom-advanced-protection-config-${upstreamVersion}" {
     nativeBuildInputs = [ erofs-utils python3 ];
@@ -76,22 +113,12 @@ PY
     doCheck = false;
     # Patch Rust source paths, not embedded Android code. NixOS does not
     # supply /usr/bin/droidloom-* or /usr/lib/droidloom.
-    postPatch = ''
-      export DL_OUT="$out"
-      export DL_ANDROID="${androidArtifacts}/usr/lib/droidloom"
-      export DL_RUNTIME="${runtimeMetadata}/usr/share/droidloom"
-      export DL_RUNTIME_LIB="${runtimeMetadata}/usr/lib/droidloom"
-      export DL_SYSTEMCTL="${systemd}/bin/systemctl"
-      export DL_SYSTEMD_RUN="${systemd}/bin/systemd-run"
-      export DL_GETENT="${glibc.bin}/bin/getent"
-      export DL_RUNUSER="${util-linux}/bin/runuser"
-      export DL_ENV="${coreutils}/bin/env"
-      export DL_ADB="${android-tools}/bin/adb"
-      export DL_PKEXEC="${polkit}/bin/pkexec"
-      export DL_TIMEOUT="${coreutils}/bin/timeout"
-      export DL_IP="${iproute2}/bin/ip"
-      ${python3}/bin/python3 ${./patch-host.py}
-    '';
+    postPatch = substituteHostPaths {
+      out = "$out";
+      android = "${androidArtifacts}/usr/lib/droidloom";
+      runtime = "${runtimeMetadata}/usr/share/droidloom";
+      runtimeLib = "${runtimeMetadata}/usr/lib/droidloom";
+    };
 
     installPhase = ''
       runHook preInstall
@@ -113,5 +140,6 @@ PY
     };
   };
 in {
-  inherit host androidArtifacts runtimeMetadata advancedProtectionConfig sourceArchive;
+  inherit host androidArtifacts runtimeMetadata advancedProtectionConfig sourceArchive
+    substituteHostPaths;
 }
