@@ -788,6 +788,8 @@ dependencies = [
  "clap",
  "droidloom-contracts",
  "droidloom-cpu-placement",
+ "droidloom-denial-ipc",
+ "droidloom-device-protocol",
  "droidloom-task-control",
  "droidloom-window-policy",
  "futures-lite",
@@ -883,6 +885,7 @@ dependencies = [
 name = "droidloom-wayland"
 version = "0.1.0"
 dependencies = [
+ "ash",
  "async-channel",
  "async-io",
  "drm-fourcc",

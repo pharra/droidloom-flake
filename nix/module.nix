@@ -6,7 +6,6 @@ let
   host = packages.host;
   artifacts = packages.androidArtifacts;
   metadata = packages.runtimeMetadata;
-  advancedProtectionConfig = packages.advancedProtectionConfig;
   uid = toString cfg.uid;
   userName = cfg.user;
   apkInstallScript = pkgs.writeShellScript "droidloom-declarative-apks" ''
@@ -28,7 +27,6 @@ let
     export DL_RENDER_NODE="${cfg.renderNode}"
     export DL_GPU="${if cfg.gpu == null then "" else cfg.gpu}"
     export DL_GRAPHICS_BACKEND="${cfg.graphicsBackend}"
-    export DL_ADVANCED_PROTECTION_CONFIG="${advancedProtectionConfig}"
     export DL_DATA_DIR="${dataDir}"
     export DL_SUB_ID_START="${toString cfg.subIdStart}"
     ${pkgs.python3}/bin/python3 - <<'PY'
@@ -66,13 +64,6 @@ if os.environ["DL_GPU"]:
 else:
     spec.pop("gpu", None)
 spec["graphics_backend"] = os.environ["DL_GRAPHICS_BACKEND"]
-override_target = "/system/etc/advanced-protection-config/advanced-protection-config.xml"
-overrides = spec.setdefault("android_file_overrides", [])
-overrides[:] = [entry for entry in overrides if entry.get("target") != override_target]
-overrides.append({
-    "source": os.environ["DL_ADVANCED_PROTECTION_CONFIG"],
-    "target": override_target,
-})
 Path(os.environ["out"]).write_text(json.dumps(spec, indent=2) + "\n")
 PY
   '';

@@ -47,7 +47,6 @@
         host = droidloom.host;
         android-artifacts = droidloom.androidArtifacts;
         runtime-metadata = droidloom.runtimeMetadata;
-        advanced-protection-config = droidloom.advancedProtectionConfig;
       };
 
       # `nix flake check --no-build` evaluates these derivations without
@@ -63,22 +62,6 @@
             then "ok"
             else throw "Droidloom module must delegate its cgroup subgroup and load the system DMA heap"
           } > "$out"
-        '';
-        advanced-protection-config = pkgs.runCommand "droidloom-advanced-protection-config-check" {
-          nativeBuildInputs = [ pkgs.python3 ];
-        } ''
-          ${pkgs.python3}/bin/python3 - ${droidloom.advancedProtectionConfig} <<'PY'
-import sys
-from xml.etree import ElementTree as ET
-
-root = ET.parse(sys.argv[1]).getroot()
-protections = root.findall("./available-protections/protection")
-if not protections:
-    raise SystemExit("Advanced Protection config contains no protections")
-if any("featureFlag" in protection.attrib for protection in protections):
-    raise SystemExit("Advanced Protection config still has a featureFlag attribute")
-PY
-          echo passed > "$out"
         '';
         upstream-patch = pkgs.runCommand "droidloom-upstream-patch-check" {
           nativeBuildInputs = with pkgs; [ gnutar gzip ];

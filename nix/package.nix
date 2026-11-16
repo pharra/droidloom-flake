@@ -2,22 +2,22 @@
   python3, pkg-config, clang, llvmPackages, libdrm, libgbm, mesa, wayland,
   libxkbcommon, pipewire, systemd, glibc, util-linux, coreutils,
   android-tools, polkit, nftables, iproute2, iptables, e2fsprogs, rsync,
-  libGL, libffi, zlib, vulkan-loader, glslang, makeWrapper, erofs-utils }:
+  libGL, libffi, zlib, vulkan-loader, glslang, makeWrapper }:
 let
-  upstreamVersion = "0.1.0-33";
+  upstreamVersion = "0.1.0-41";
   upstream = "https://github.com/denialwm/droidloom/releases/download/packages";
 
   sourceArchive = fetchurl {
     url = "${upstream}/droidloom-source-${upstreamVersion}.tar.gz";
-    hash = "sha256-1Tk0hpLMFFbaM6RuFBUDG2uUZlnGWwFsrsYhRBW8w4I=";
+    hash = "sha256-Di4uZsNC+T2mvDQ1UwLQlj3qLz4NEogN7hqhTOYAwXQ=";
   };
   runtimeArchive = fetchurl {
     url = "${upstream}/droidloom-runtime-${upstreamVersion}-x86_64.pkg.tar.zst";
-    hash = "sha256-c26gG69RetZUdEI2v+NaSz+rQVCp4RJORNdzJeb7T5E=";
+    hash = "sha256-M0GvyabR90Yr2NqafIV0D7DhFNSjvW7SiDQx0ps4nFc=";
   };
   imageArchive = fetchurl {
     url = "${upstream}/droidloom-image-${upstreamVersion}-x86_64.pkg.tar.zst";
-    hash = "sha256-aE+jMQPofDTLwN1bmJwB7rDH7zTEkKaMZ+7w4BwdCmo=";
+    hash = "sha256-tgjqupP08Y9Beozei5HwK3ZPAT862QHJuhdKWavDI5M=";
   };
 
   unpackPackage = kind: archive:
@@ -70,26 +70,6 @@ let
         --replace-quiet "/usr/bin/env" "${coreutils}/bin/env"
     '';
 
-  advancedProtectionConfig = runCommand "droidloom-advanced-protection-config-${upstreamVersion}" {
-    nativeBuildInputs = [ erofs-utils python3 ];
-  } ''
-    ${erofs-utils}/bin/fsck.erofs \
-      --extract="$TMPDIR/advanced-protection-config.xml" \
-      --path=/system/etc/advanced-protection-config/advanced-protection-config.xml \
-      ${androidArtifacts}/usr/lib/droidloom/images/images/system.img
-    ${python3}/bin/python3 - "$TMPDIR/advanced-protection-config.xml" "$out" <<'PY'
-import sys
-from xml.etree import ElementTree as ET
-
-source, destination = sys.argv[1:]
-parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
-tree = ET.parse(source, parser=parser)
-for element in tree.iter("protection"):
-    element.attrib.pop("featureFlag", None)
-tree.write(destination, encoding="utf-8", xml_declaration=True)
-PY
-  '';
-
   host = rustPlatform.buildRustPackage {
     pname = "droidloom-nixos-host";
     version = upstreamVersion;
@@ -126,8 +106,13 @@ PY
       for name in droidloomd droidloomctl droidloom-supervisor droidloom-wayland droidloom-applications droidloom-audio droidloom-devices droidloom-doctor droidloom-gpu-server; do
         install -m755 "target/x86_64-unknown-linux-gnu/release/$name" "$out/bin/$name"
       done
-      wrapProgram "$out/bin/droidloom-gpu-server" \
-        --prefix LD_LIBRARY_PATH : "${vulkan-loader}/lib"
+      # Both binaries dlopen the Vulkan loader at run time: the GPU server for
+      # forwarding, and the Wayland host for the DMA-BUF layouts of the
+      # compositor GPU when it offers no linear buffers.
+      for name in droidloom-gpu-server droidloom-wayland; do
+        wrapProgram "$out/bin/$name" \
+          --prefix LD_LIBRARY_PATH : "${vulkan-loader}/lib"
+      done
       runHook postInstall
     '';
     # Host tools were compiled against the matching upstream release. An
@@ -140,6 +125,5 @@ PY
     };
   };
 in {
-  inherit host androidArtifacts runtimeMetadata advancedProtectionConfig sourceArchive
-    substituteHostPaths;
+  inherit host androidArtifacts runtimeMetadata sourceArchive substituteHostPaths;
 }

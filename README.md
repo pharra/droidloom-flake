@@ -1,15 +1,17 @@
 # Droidloom Flake for NixOS (experimental)
 
-One Git-ready flake, with a declarative NixOS module and APK list. Android images are fetched from the official `0.1.0-33` release; **Linux host** Rust programs are rebuilt to adapt upstream `/usr/...` paths for NixOS. The Wayland host still requires the upstream `zwlr_output_power_manager_v1` protocol. APK installation happens when the Android service starts. No temporary NixOS configurations, overwriting `/etc/nixos`, or stand-alone test flakes are involved.
+One Git-ready flake, with a declarative NixOS module and APK list. Android images are fetched from the official `0.1.0-41` release; **Linux host** Rust programs are rebuilt to adapt upstream `/usr/...` paths for NixOS. The Wayland host still requires the upstream `zwlr_output_power_manager_v1` protocol. APK installation happens when the Android service starts. No temporary NixOS configurations, overwriting `/etc/nixos`, or stand-alone test flakes are involved.
 
 ## What has / has not been checked
 
-- Checked against the official `0.1.0-33` source and package metadata, including its new device and GPU brokers. The flake currently targets `x86_64-linux`; the upstream installer also supports `aarch64`, which this flake does not yet package.
+- Checked against the official `0.1.0-41` source and package metadata, including its device and GPU brokers. The flake currently targets `x86_64-linux`; the upstream installer also supports `aarch64`, which this flake does not yet package.
 - `nix flake check --no-build` and the upstream host-path patch derivation pass. A successful build still does not prove a working deployment; Android cells and compositor compatibility require on-device validation.
 - This is **not** a proven working Droidloom deployment. Compositor compatibility and Android cells still require on-device validation. The module does not add or modify compositor protocols.
 - Generated files in `/etc/droidloom` are intentionally ordinary root-owned files, **not symlinks**, to satisfy upstream validation. Existing non-managed `cell.json` is saved to `cell.json.before-nixos-flake` before replacement.
 - The system daemon delegates a `droidloom` cgroup subgroup to Android. This keeps Android's cgroup namespace root below the systemd unit root so `netd` can attach its egress BPF program.
-- The generated cell spec replaces Android's Advanced Protection config with a store-backed copy from the matching system image, removing `featureFlag` attributes that crash the release 33 framework when its Aconfig package is unavailable.
+- `droidloom-wayland` and `droidloom-gpu-server` load the Vulkan loader at run time, so both are wrapped with `vulkan-loader`; the driver itself is found through the NixOS `/run/opengl-driver/share/vulkan` search path.
+- The generated cell spec leaves Android's Advanced Protection config alone. Upstream since release 39 opens the cell's `metadata` root to 0755 at every start, so `aconfigd` can create the flag storage the release 41 config relies on; the earlier store-backed copy that stripped `featureFlag` attributes is gone.
+- `droidloomctl launch PACKAGE` starts the package's first launcher activity by component, as upstream release 40 fixed the package-only intent that Android answered with `-91`. See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) if you still see that error.
 - Standalone APKs can be installed/updated from `services.droidloom.applications`; deleting an APK from the Nix list does **not** uninstall the app in Android. No arbitrary APKs are bundled.
 - Android app **data remains mutable** at `/var/lib/droidloom` (as intended). Nix declarativity describes the installation and desired APK set, not a reproducible mutable Android user profile.
 
@@ -106,6 +108,6 @@ Split APK bundles `.apkm`, `.apks`, `.xapk` are not supported by upstream `droid
 - `nix/module.nix` — UID/GID handling, root-owned cell spec, system/user services, APK install.
 - `nix/package.nix` — official release archives, pinned hashes, host build; `postPatch` rewrites upstream `/usr/...` paths to Nix store paths with `substituteInPlace`.
 - `nix/Cargo.lock` — Cargo dependencies pinned to the same official source release.
-- `TROUBLESHOOTING.md` — known launch failures, including `Activity start failed: -91` when launching by package name.
+- `TROUBLESHOOTING.md` — upstream issues this flake previously worked around, and how to spot an outdated install.
 
 Official Droidloom source: https://github.com/denialwm/droidloom . This flake is an independent experimental integration, not an official upstream package.
