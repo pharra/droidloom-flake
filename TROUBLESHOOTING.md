@@ -111,3 +111,49 @@ The generated cell spec still carries the old override when it contains an
 ```bash
 grep -c 'advanced-protection-config' /etc/droidloom/cell.json
 # 0 on a current flake; 1 with the removed workaround
+
+## `session bus disconnected; retrying` and `Android connected` every few seconds
+
+**Symptom**
+
+The journal repeats a pair about every four seconds, and Android application
+windows flash while it does:
+
+```text
+Droidloom notifications: Android connected
+Droidloom notifications: session bus disconnected; retrying
+```
+
+**Cause**
+
+The notification bridge posts every Android snapshot through the session bus's
+`org.freedesktop.Notifications`. When that name has an owner that accepts the
+connection but never answers, as a compositor or shell left over from an
+earlier desktop session that lost its display, each call hits the bridge's
+three-second method timeout. The bridge then treats the bus as dead, restarts,
+and drops Android's notification socket; SystemUI reconnects and re-syncs its
+notifications on the next cycle, which is what makes windows flash.
+
+**Diagnosis**
+
+```bash
+busctl --user call org.freedesktop.Notifications \
+  /org/freedesktop/Notifications org.freedesktop.Notifications GetCapabilities
+# Call failed: Connection timed out
+
+busctl --user list | grep org.freedesktop.Notifications
+# org.freedesktop.Notifications  2835 .plasmashell-wr wf :1.10 user@1000.service
+```
+
+**Fix**
+
+End the unresponsive owner and restart Droidloom. With no owner, the bridge
+skips posting and keeps its Android connection:
+
+```bash
+kill <pid>
+systemctl --user restart droidloom
+```
+
+A desktop without a notification service is enough: Droidloom then stays
+connected and Android's notifications simply have no desktop to appear in.
