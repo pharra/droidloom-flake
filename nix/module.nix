@@ -17,6 +17,16 @@ let
   '';
   dataDir = "/var/lib/droidloom/users/${uid}/data";
 
+  # Upstream's installer writes these to /usr/lib/environment.d; the package
+  # points the units at /etc/droidloom/runtime.env so one file carries this
+  # host's user, render node and GPU choice.
+  runtimeEnv = pkgs.writeText "droidloom-runtime.env" (''
+    DROIDLOOM_HOST_PEER_PID=0
+    DROIDLOOM_HOST_PEER_UID=${uid}
+    DROIDLOOM_HOST_PEER_GID=${uid}
+    DROIDLOOM_RENDER_NODE=${cfg.renderNode}
+  '' + lib.optionalString (cfg.gpu != null) "DROIDLOOM_GPU=${cfg.gpu}\n");
+
   # Build the cell spec from the exact matching upstream package template.
   # Keep the Android binary payload entirely in the Nix store.
   cellSpec = pkgs.runCommand "droidloom-nixos-cell-${uid}.json" {
@@ -176,6 +186,7 @@ in
           exit 1
         fi
         ${pkgs.coreutils}/bin/install -d -m 0755 /etc/droidloom
+        ${pkgs.coreutils}/bin/install -m 0644 ${runtimeEnv} /etc/droidloom/runtime.env
         if [ -e /etc/droidloom/cell.json ] && [ ! -e /etc/droidloom/.nixos-port-managed ]; then
           # Preserve configuration created by a previous non-NixOS installation.
           ${pkgs.coreutils}/bin/cp -a /etc/droidloom/cell.json /etc/droidloom/cell.json.before-nixos-flake
@@ -187,9 +198,13 @@ in
       '';
     };
 
+    # The host package installs upstream's lifecycle units under
+    # lib/systemd/{system,user}. NixOS links them into /etc/systemd, so this
+    # module only supplies what upstream cannot know: the runner's PATH, the
+    # storage it creates before Android starts, and the session user.
+    systemd.packages = [ host ];
+
     systemd.services.droidloomd = {
-      description = "Droidloom Android cell lifecycle daemon (NixOS experiment)";
-      after = [ "network.target" ];
       path = with pkgs; [
         coreutils util-linux iproute2 nftables iptables android-tools
         e2fsprogs gnutar zstd rsync systemd procps findutils gnugrep gnused
@@ -214,68 +229,12 @@ in
           fi
         done
       '';
-      serviceConfig = {
-        Type = "simple";
-        # Android netd attaches egress BPF to its cgroup namespace root. Keep
-        # that root below the systemd unit cgroup, which rejects BPF attaches.
-        Delegate = true;
-        DelegateSubgroup = "droidloom";
-        ExecStart = "${host}/bin/droidloomd";
-        TimeoutStopSec = "20s";
-        KillMode = "mixed";
-        OOMPolicy = "continue";
-        Restart = "on-failure";
-        RestartSec = "1s";
-        RuntimeDirectory = "droidloom";
-        RuntimeDirectoryMode = "0755";
-      };
-      # This system unit is not enabled at boot. The user unit starts it.
+      # Not enabled at boot: the user unit starts it on demand.
     };
 
     systemd.user.services.droidloom = {
-      description = "Droidloom Android Wayland runtime (experimental)";
-      partOf = [ "graphical-session.target" ];
-      after = [
-        "graphical-session-pre.target"
-        "droidloom-audio.socket"
-        "droidloom-devices.socket"
-        "droidloom-gpu.socket"
-      ];
-      wants = [
-        "droidloom-applications.service"
-        "droidloom-audio.socket"
-        "droidloom-devices.socket"
-        "droidloom-gpu.socket"
-        "droidloom-recovery.service"
-      ];
+      unitConfig.ConditionUser = cfg.user;
       wantedBy = lib.optionals cfg.autoStart [ "graphical-session.target" ];
-      unitConfig = {
-        ConditionPathExists = "/etc/droidloom/cell.json";
-        ConditionUser = cfg.user;
-      };
-      serviceConfig = {
-        Type = "notify";
-        NotifyAccess = "main";
-        Environment = [
-          "DROIDLOOM_MODE=desktop"
-          "DROIDLOOM_HOST_PEER_PID=0"
-          "DROIDLOOM_HOST_PEER_UID=${uid}"
-          "DROIDLOOM_HOST_PEER_GID=${uid}"
-          "DROIDLOOM_RENDER_NODE=${cfg.renderNode}"
-        ];
-        EnvironmentFile = [ "-%t/droidloom/session.env" ];
-        ExecStartPre = "${pkgs.systemd}/bin/systemctl start droidloomd.service";
-        ExecStart = "${host}/bin/droidloom-wayland";
-        ExecStartPost = "${host}/bin/droidloomctl start --cell";
-        ExecStopPost = [
-          "-${host}/bin/droidloomctl stop --cell"
-          "${pkgs.systemd}/bin/systemctl stop droidloomd.service"
-        ];
-        Restart = "on-failure";
-        RestartSec = "1s";
-        TimeoutStartSec = 150;
-        TimeoutStopSec = 150;
-      };
     };
 
     systemd.user.services.droidloom-apks = lib.mkIf (cfg.applications != []) {
@@ -290,112 +249,5 @@ in
       };
     };
 
-    systemd.user.services.droidloom-applications = {
-      description = "Droidloom desktop applications catalog";
-      partOf = [ "droidloom.service" ];
-      after = [ "droidloom.service" ];
-      unitConfig.ConditionPathExists = "/etc/droidloom/cell.json";
-      serviceConfig = {
-        Type = "simple";
-        ExecStart = "${host}/bin/droidloom-applications";
-        Restart = "on-failure";
-        RestartSec = "2s";
-      };
-    };
-
-    systemd.user.sockets.droidloom-audio = {
-      description = "Droidloom private Android audio socket";
-      partOf = [ "droidloom.service" ];
-      socketConfig = {
-        ListenSequentialPacket = "%t/droidloom/audio.sock";
-        SocketMode = "0666";
-        DirectoryMode = "0700";
-        RemoveOnStop = true;
-      };
-    };
-    systemd.user.services.droidloom-audio = {
-      description = "Droidloom host PipeWire broker";
-      after = [ "pipewire.socket" ];
-      wants = [ "pipewire.socket" ];
-      partOf = [ "droidloom.service" ];
-      requires = [ "droidloom-audio.socket" ];
-      serviceConfig = {
-        ExecStart = "${host}/bin/droidloom-audio --socket %t/droidloom/audio.sock";
-        EnvironmentFile = [ "-%h/.config/droidloom/audio.env" ];
-        Restart = "on-failure";
-        RestartSec = "1s";
-        NoNewPrivileges = true;
-        RestrictSUIDSGID = true;
-      };
-    };
-    systemd.user.sockets.droidloom-devices = {
-      description = "Droidloom private Android device endpoints";
-      partOf = [ "droidloom.service" ];
-      socketConfig = {
-        ListenSequentialPacket = [
-          "%t/droidloom/haptics.sock"
-          "%t/droidloom/camera.sock"
-          "%t/droidloom/fingerprint.sock"
-        ];
-        SocketMode = "0666";
-        DirectoryMode = "0700";
-        RemoveOnStop = true;
-      };
-    };
-    systemd.user.services.droidloom-devices = {
-      description = "Droidloom host haptics, camera and fingerprint broker";
-      partOf = [ "droidloom.service" ];
-      requires = [ "droidloom-devices.socket" ];
-      serviceConfig = {
-        ExecStart = "${host}/bin/droidloom-devices";
-        Restart = "on-failure";
-        RestartSec = "1s";
-        NoNewPrivileges = true;
-        RestrictSUIDSGID = true;
-      };
-    };
-    systemd.user.sockets.droidloom-gpu = {
-      description = "Droidloom GPU forwarding endpoint";
-      partOf = [ "droidloom.service" ];
-      socketConfig = {
-        ListenStream = "%t/droidloom/gpu.sock";
-        SocketMode = "0666";
-        DirectoryMode = "0700";
-        RemoveOnStop = true;
-      };
-    };
-    systemd.user.services.droidloom-gpu = {
-      description = "Droidloom GPU server: Android Vulkan on the host driver";
-      partOf = [ "droidloom.service" ];
-      requires = [ "droidloom-gpu.socket" ];
-      serviceConfig = {
-        ExecStart = "${host}/bin/droidloom-gpu-server";
-        Environment = lib.optional (cfg.gpu != null) "DROIDLOOM_GPU=${cfg.gpu}";
-        Restart = "on-failure";
-        RestartSec = "1s";
-        NoNewPrivileges = true;
-        RestrictSUIDSGID = true;
-      };
-    };
-    systemd.user.services.droidloom-recovery = {
-      description = "Droidloom Android cell crash recovery";
-      bindsTo = [ "droidloom.service" ];
-      partOf = [ "droidloom.service" ];
-      after = [ "droidloom.service" ];
-      unitConfig = {
-        ConditionPathExists = "/etc/droidloom/cell.json";
-        StartLimitIntervalSec = 300;
-        StartLimitBurst = 5;
-      };
-      serviceConfig = {
-        Type = "simple";
-        ExecStartPre = "${pkgs.systemd}/bin/systemctl start droidloomd.service";
-        ExecStart = "${host}/bin/droidloomctl supervise --cell";
-        Restart = "on-failure";
-        RestartSec = "5s";
-        TimeoutStartSec = 150;
-        TimeoutStopSec = 10;
-      };
-    };
   };
 }

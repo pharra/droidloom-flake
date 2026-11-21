@@ -55,19 +55,24 @@
         host = droidloom.host;
         module-evaluation = pkgs.runCommand "droidloom-module-evaluation" { } ''
           echo ${
-            if moduleEval.config.systemd.services ? droidloomd
-              && moduleEval.config.systemd.services.droidloomd.serviceConfig.Delegate
-              && moduleEval.config.systemd.services.droidloomd.serviceConfig.DelegateSubgroup == "droidloom"
-              && builtins.elem "system_heap" moduleEval.config.boot.kernelModules
+            if builtins.elem "system_heap" moduleEval.config.boot.kernelModules
             then "ok"
-            else throw "Droidloom module must delegate its cgroup subgroup and load the system DMA heap"
+            else throw "Droidloom must load the system DMA heap for forwarding backends"
           } > "$out"
+
+          # The lifecycle units come from the host package, which must keep
+          # upstream's cgroup delegation and use no /usr path.
+          grep -qx 'Delegate=memory pids' ${droidloom.host}/lib/systemd/system/droidloomd.service
+          grep -qx 'DelegateSubgroup=supervisor' ${droidloom.host}/lib/systemd/system/droidloomd.service
+          if grep -rq '/usr/' ${droidloom.host}/lib/systemd/system \
+            ${droidloom.host}/share/systemd/user; then
+            echo "installed units still reference /usr paths" >&2
+            exit 1
+          fi
         '';
-        upstream-patch = pkgs.runCommand "droidloom-upstream-patch-check" {
-          nativeBuildInputs = with pkgs; [ gnutar gzip ];
-        } ''
-          mkdir -p extracted
-          tar -xzf ${droidloom.sourceArchive} -C extracted --strip-components=1
+        upstream-patch = pkgs.runCommand "droidloom-upstream-patch-check" { } ''
+          cp -r ${droidloom.sourceTree} extracted
+          chmod -R u+w extracted
           cd extracted
           ${droidloom.substituteHostPaths {
             out = "/nix/store/placeholder-droidloom-host";

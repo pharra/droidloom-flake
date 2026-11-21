@@ -1,24 +1,39 @@
-{ lib, rustPlatform, fetchurl, runCommand, zstd, gnutar,
+{ lib, rustPlatform, fetchurl, runCommand, zstd, gnutar, gzip,
   python3, pkg-config, clang, llvmPackages, libdrm, libgbm, mesa, wayland,
   libxkbcommon, pipewire, systemd, glibc, util-linux, coreutils,
   android-tools, polkit, nftables, iproute2, iptables, e2fsprogs, rsync,
   libGL, libffi, zlib, vulkan-loader, glslang, makeWrapper }:
 let
-  upstreamVersion = "0.1.0-41";
+  upstreamVersion = "0.1.0-49";
   upstream = "https://github.com/denialwm/droidloom/releases/download/packages";
 
   sourceArchive = fetchurl {
     url = "${upstream}/droidloom-source-${upstreamVersion}.tar.gz";
-    hash = "sha256-Di4uZsNC+T2mvDQ1UwLQlj3qLz4NEogN7hqhTOYAwXQ=";
+    hash = "sha256-R/NozoN/dBHJhJSfdNe5QGTVsL8ibPpa67E8HpfQVwQ=";
   };
   runtimeArchive = fetchurl {
     url = "${upstream}/droidloom-runtime-${upstreamVersion}-x86_64.pkg.tar.zst";
-    hash = "sha256-M0GvyabR90Yr2NqafIV0D7DhFNSjvW7SiDQx0ps4nFc=";
+    hash = "sha256-pQow/GZPEoRVbRztUaOGRBqytMIXeuWBKFoOsAKkaEw=";
   };
   imageArchive = fetchurl {
     url = "${upstream}/droidloom-image-${upstreamVersion}-x86_64.pkg.tar.zst";
-    hash = "sha256-tgjqupP08Y9Beozei5HwK3ZPAT862QHJuhdKWavDI5M=";
+    hash = "sha256-ptzEnodycmKmskm9etDtFA0RSSULmD81HRUeW9r69p8=";
   };
+  # The image package carries only vendor.raw.img; the pinned base partitions
+  # are published separately and the image names the base release it needs.
+  baseArchive = fetchurl {
+    url = "${upstream}/droidloom-base-${upstreamVersion}-x86_64.pkg.tar.zst";
+    hash = "sha256-qjE9By+JNcbFZzKnRAote6uOt5dUDjDgdBHKkblfcm4=";
+  };
+
+  # One extraction serves the build, its own Cargo.lock and the flake check, so
+  # the lock file no longer lives in this repository.
+  sourceTree = runCommand "droidloom-source-${upstreamVersion}" {
+    nativeBuildInputs = [ gnutar gzip ];
+  } ''
+    mkdir -p "$out"
+    tar -xzf ${sourceArchive} -C "$out" --strip-components=1
+  '';
 
   unpackPackage = kind: archive:
     runCommand "droidloom-${kind}-payload-${upstreamVersion}" {
@@ -30,7 +45,13 @@ let
 
   # Both packages are from the same upstream release. The Android files are
   # kept bit-for-bit unchanged: patching host ELF files in this tree is unsafe.
-  androidArtifacts = unpackPackage "android" imageArchive;
+  androidArtifacts = runCommand "droidloom-android-payload-${upstreamVersion}" {
+    nativeBuildInputs = [ zstd gnutar ];
+  } ''
+    mkdir -p "$out"
+    tar --use-compress-program=unzstd --no-same-owner -xf ${baseArchive} -C "$out" usr
+    tar --use-compress-program=unzstd --no-same-owner -xf ${imageArchive} -C "$out" usr
+  '';
   runtimeMetadata = unpackPackage "runtime" runtimeArchive;
 
   # Runtime PATH for code paths that fall back to an FHS bin directory or exec
@@ -73,8 +94,10 @@ let
   host = rustPlatform.buildRustPackage {
     pname = "droidloom-nixos-host";
     version = upstreamVersion;
-    src = sourceArchive;
-    cargoLock.lockFile = ./Cargo.lock;
+    src = sourceTree;
+    # Cargo reads the Cargo.lock in that tree, so this repository keeps no copy.
+    # Only the vendor hash is pinned, and a lock change reports the new one.
+    cargoHash = "sha256-7XFLef9cTWLHTHaOmvmidIcfiNiZioJOQSMvvysNVhg=";
     cargoBuildFlags = [
       "-p" "droidloom-supervisor"
       "-p" "droidloom-wayland"
@@ -113,6 +136,23 @@ let
         wrapProgram "$out/bin/$name" \
           --prefix LD_LIBRARY_PATH : "${vulkan-loader}/lib"
       done
+
+      # The release's runtime package ships the lifecycle units, so the NixOS
+      # module installs them from here instead of restating them. Only
+      # their host paths change: binaries move into the store, systemctl
+      # becomes systemd's, and the variables the installer would write to
+      # /usr/lib/environment.d come from the module's runtime.env.
+      for kind in system user; do
+        mkdir -p "$out/lib/systemd/$kind"
+        cp -r "${runtimeMetadata}/usr/lib/systemd/$kind/." "$out/lib/systemd/$kind/"
+        chmod 0644 "$out"/lib/systemd/"$kind"/*
+      done
+      substituteInPlace "$out"/lib/systemd/{system,user}/* \
+        --replace-quiet "/usr/bin/droidloom-" "$out/bin/droidloom-" \
+        --replace-quiet "/usr/bin/droidloomctl" "$out/bin/droidloomctl" \
+        --replace-quiet "/usr/bin/droidloomd" "$out/bin/droidloomd" \
+        --replace-quiet "/usr/bin/systemctl" "${systemd}/bin/systemctl" \
+        --replace-quiet "/usr/lib/environment.d/60-droidloom.conf" "/etc/droidloom/runtime.env"
       runHook postInstall
     '';
     # Host tools were compiled against the matching upstream release. An
@@ -125,5 +165,5 @@ let
     };
   };
 in {
-  inherit host androidArtifacts runtimeMetadata sourceArchive substituteHostPaths;
+  inherit host androidArtifacts runtimeMetadata sourceTree substituteHostPaths;
 }
